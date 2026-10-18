@@ -1,32 +1,20 @@
 name: bcavoid-decomp
-on:
-  workflow_dispatch:
+on: workflow_dispatch
 jobs:
   decomp:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Java + Утилиты
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq openjdk-17-jdk unzip wget >/dev/null
-        
-      - name: Ghidra
-        run: |
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq openjdk-17-jdk unzip wget >/dev/null
+      - run: |
           wget -q https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_11.0.3_build/ghidra_11.0.3_PUBLIC_20240410.zip
           unzip -q ghidra_11.0.3_PUBLIC_20240410.zip
-          # Увеличиваем память для Ghidra (max heap 6GB)
-          echo "application.settings=/ghidra" > support/analyzeHeadless.properties
-          echo "MAXMEM=6G" >> support/analyzeHeadless.properties
           echo "GHIDRA=$(pwd)/ghidra_11.0.3_PUBLIC" >> $GITHUB_ENV
-          
-      - name: Достать .so
-        run: |
+      - run: |
           unzip -o -q reverse/envy.apk 'lib/*' -d natives
           echo "SO_PATH=$(find natives -name 'libDDNet.so' | head -1)" >> $GITHUB_ENV
-          
-      - name: Декомпиляция
-        run: |
+      - run: |
           mkdir -p out
           cat > Dump.java << 'JAVA'
           import ghidra.app.script.GhidraScript;
@@ -40,28 +28,18 @@ jobs:
               File out = new File(getScriptArgs()[0]);
               PrintWriter pw = new PrintWriter(new FileWriter(out));
               for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
-                String name = f.getName();
-                if (!name.contains("BcAvoid") && !name.contains("ENwcAvoid")) continue;
+                if (!f.getName().contains("BcAvoid")) continue;
                 DecompileResults r = ifc.decompileFunction(f, 120, monitor);
-                pw.println("// ===== " + name + " =====");
+                pw.println("// ===== " + f.getName() + " =====");
                 if (r != null && r.decompileCompleted()) pw.println(r.getDecompiledFunction().getC());
               }
               pw.close();
             }
           }
           JAVA
-          
-          # Запуск с принудительной памятью
-          $GHIDRA/support/analyzeHeadless "$(pwd)/proj" proj \
-            -import "$SO_PATH" \
-            -postScript Dump.java "$(pwd)/out/bcavoid.c" \
-            -scriptPath "$(pwd)" \
-            -deleteProject \
-            -max-cpu 2 \
-            -jvm-args "-Xmx6000m" 2>&1 | tail -10
-            
-          if [ ! -s out/bcavoid.c ]; then echo "Файл пуст или создан с ошибкой"; exit 1; fi
-          
+          # ВОТ ЗДЕСЬ МЫ ДАЕМ 6 ГБ ПАМЯТИ
+          $GHIDRA/support/analyzeHeadless "$(pwd)/proj" proj -import "$SO_PATH" -postScript Dump.java "$(pwd)/out/bcavoid.c" -scriptPath "$(pwd)" -deleteProject -max-cpu 2 -jvm-args "-Xmx6g" 2>&1 | tail -15
+          if [ ! -s out/bcavoid.c ]; then echo "Ghidra упала или файл пуст"; exit 1; fi
       - uses: actions/upload-artifact@v4
         with:
           name: bcavoid-c
