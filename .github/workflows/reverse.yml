@@ -13,19 +13,37 @@ jobs:
           sudo apt-get install -y -qq openjdk-17-jdk unzip wget zip >/dev/null
       - name: jadx
         run: |
-          wget -q https://github.com/skylot/jadx/releases/download/v1.5.0/jadx-1.5.0.zip
-          unzip -q jadx-1.5.0.zip -d jadx
+          for i in 1 2 3; do
+            wget -q --retry-connrefused --tries=3 https://github.com/skylot/jadx/releases/download/v1.5.0/jadx-1.5.0.zip -O jadx.zip && break
+            sleep 5
+          done
+          unzip -q jadx.zip -d jadx
       - name: apktool
+        continue-on-error: true
         run: |
-          wget -q https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O apktool
-          wget -q https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar -O apktool.jar
-          chmod +x apktool
+          set +e
+          for i in 1 2 3; do
+            wget -q --retry-connrefused --tries=3 "https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool" -O apktool && break
+            sleep 5
+          done
+          for i in 1 2 3; do
+            wget -q --retry-connrefused --tries=3 "https://github.com/iBotPeaches/Apktool/releases/download/v2.9.3/apktool_2.9.3.jar" -O apktool.jar && break
+            sleep 5
+          done
+          chmod +x apktool 2>/dev/null || true
+          echo "apktool jar: $([ -f apktool.jar ] && echo yes || echo no)"
       - name: Инфо
         run: |
           ls -lh reverse/envy.apk
           unzip -l reverse/envy.apk | grep -E '\.so$|classes.*\.dex' | head -100
       - name: apktool d
-        run: ./apktool d -f reverse/envy.apk -o out/apktool
+        continue-on-error: true
+        run: |
+          if [ -f apktool.jar ]; then
+            java -jar apktool.jar d -f reverse/envy.apk -o out/apktool || echo "::warning::apktool d упал"
+          else
+            echo "::warning::apktool недоступен, пропускаю"
+          fi
       - name: jadx
         run: ./jadx/bin/jadx -d out/jadx --no-res reverse/envy.apk
       - name: .so
@@ -35,8 +53,11 @@ jobs:
           find out/natives -name '*.so' -exec ls -lh {} \;
       - name: Ghidra
         run: |
-          wget -q https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_11.0.3_build/ghidra_11.0.3_PUBLIC_20240410.zip
-          unzip -q ghidra_11.0.3_PUBLIC_20240410.zip
+          for i in 1 2 3; do
+            wget -q --retry-connrefused --tries=3 https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_11.0.3_build/ghidra_11.0.3_PUBLIC_20240410.zip -O ghidra.zip && break
+            sleep 5
+          done
+          unzip -q ghidra.zip
           GHIDRA=$(pwd)/ghidra_11.0.3_PUBLIC
           mkdir -p out/ghidra
           cat > DumpAll.java << 'JAVA'
